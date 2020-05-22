@@ -28,6 +28,11 @@ impl<K,P,V> DirectVecIndex<K,P,V> {
             index: Vec::new(),
         }
     }
+    fn size(&self) -> usize {
+        let i = self.index.len();
+        let r = self.reuse.len();
+        if i > r { i - r } else { 0 }
+    }
     fn insert(&mut self, node: Node<K,P,V>) -> NodePtr {
         Some(match self.reuse.pop() {
             Some(id) => {
@@ -112,6 +117,9 @@ pub struct Treap<K,P,V> {
 impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
     pub fn new() -> Treap<K,P,V> {
         Treap{ root: None, index: Index::new() }
+    }
+    pub fn len(&self) -> usize {
+        self.index.size()
     }
     pub fn insert(&mut self, key: K, priority: P, value: V) -> Result<Option<(P,V)>,Error> {
         let mut tmp = Treap { root: None, index: Index::new() };
