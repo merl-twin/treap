@@ -157,12 +157,12 @@ impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
         
         Ok(node.map(|node| (node.priority,node.value)))
     }
-    pub fn get<'t>(&'t self, key: &K) -> Result<Option<&'t V>,Error> {
-        fn search_node<'t,K: PartialOrd + PartialEq,P,V>(index: &'t Index<K,P,V>, node: NodePtr, key: &K) -> Result<Option<&'t V>,IndexError> {
+    pub fn get<'t>(&'t self, key: &K) -> Result<Option<(&'t P, &'t V)>,Error> {
+        fn search_node<'t,K: PartialOrd + PartialEq,P,V>(index: &'t Index<K,P,V>, node: NodePtr, key: &K) -> Result<Option<(&'t P, &'t V)>,IndexError> {
             if node.is_none() { return Ok(None); }
             let entry = index.get(&node)?;
             if entry.key == *key {
-                Ok(Some(&entry.value))
+                Ok(Some((&entry.priority,&entry.value)))
             } else {
                 if entry.key > *key {
                     search_node(index,entry.left,key)
@@ -173,6 +173,38 @@ impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
         }
 
         search_node(&self.index,self.root,key).map_err(Error::Index)
+    }
+    pub fn get_mut<'t>(&'t mut self, key: &K) -> Result<Option<(&'t P, &'t mut V)>,Error> {
+        enum Action {
+            Found(NodePtr),
+            Left(NodePtr),
+            Right(NodePtr),
+        }
+        fn search_node<'t,K: PartialOrd + PartialEq,P,V>(index: &'t mut Index<K,P,V>, node: NodePtr, key: &K) -> Result<Option<(&'t P, &'t mut V)>,IndexError> {
+            if node.is_none() { return Ok(None); }
+            let action = {
+                let entry = index.get_mut(&node)?;
+                if entry.key == *key {
+                    Action::Found(node)
+                } else {
+                    if entry.key > *key {
+                        Action::Left(entry.left)
+                    } else {
+                        Action::Right(entry.right)
+                    }
+                }               
+            };
+            match action {
+                Action::Found(node) => {
+                    let node_ref = index.get_mut(&node)?;
+                    Ok(Some((&node_ref.priority,&mut node_ref.value)))
+                },
+                Action::Left(left) => search_node(index,left,key),
+                Action::Right(right) => search_node(index,right,key),
+            }
+        }
+
+        search_node(&mut self.index,self.root,key).map_err(Error::Index)
     }
     pub fn priority<'t>(&'t self, key: &K) -> Result<Option<&'t P>,Error> {
         fn search_node<'t,K: PartialOrd + PartialEq,P,V>(index: &'t Index<K,P,V>, node: NodePtr, key: &K) -> Result<Option<&'t P>,IndexError> {
@@ -191,34 +223,29 @@ impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
 
         search_node(&self.index,self.root,key).map_err(Error::Index)
     }
-    pub fn get_mut<'t>(&'t mut self, key: &K) -> Result<Option<&'t mut V>,Error> {
-        enum Action {
-            Found(NodePtr),
-            Left(NodePtr),
-            Right(NodePtr),
-        }
-        fn search_node<'t,K: PartialOrd + PartialEq,P,V>(index: &'t mut Index<K,P,V>, node: NodePtr, key: &K) -> Result<Option<&'t mut V>,IndexError> {
-            if node.is_none() { return Ok(None); }
-            let action = {
-                let entry = index.get_mut(&node)?;
-                if entry.key == *key {
-                    Action::Found(node)
-                } else {
-                    if entry.key > *key {
-                        Action::Left(entry.left)
-                    } else {
-                        Action::Right(entry.right)
-                    }
-                }               
-            };
-            match action {
-                Action::Found(node) => Ok(Some(&mut index.get_mut(&node)?.value)),
-                Action::Left(left) => search_node(index,left,key),
-                Action::Right(right) => search_node(index,right,key),
-            }
-        }
+    pub fn prioritize(&mut self, key: &K, new_p: P) -> Result<Option<P>,Error> {
+        let mut tmp = Treap { root: None, index: Index::new() };
+        std::mem::swap(&mut tmp, self);
+        let spl = tmp.split(&key).map_err(Error::Index)?;
+        
+        let mut index = spl.index;
+        let left = spl.left;
+        let right = spl.right;
+        let (old_p,new) = match index.remove(&spl.entry).ok() {
+            Some(node) => {
+                let new_node = Node { key: node.key, priority: new_p, value: node.value, left: None, right: None };
+                (Some(node.priority),index.insert(new_node))
+            },
+            None => (None,None),
+        };
 
-        search_node(&mut self.index,self.root,key).map_err(Error::Index)
+        let root = Treap::merge_nodes(&mut index,left,new).map_err(Error::Index)?;
+        *self = Treap {
+            root: Treap::merge_nodes(&mut index,root,right).map_err(Error::Index)?,
+            index: index,
+        };
+        
+        Ok(old_p)
     }
     pub fn pop(&mut self) -> Result<Option<(K,P,V)>,Error> {
         if self.root.is_none() { return Ok(None); }
@@ -226,7 +253,6 @@ impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
         self.root = Treap::merge_nodes(&mut self.index,node.left,node.right).map_err(Error::Index)?;
         Ok(Some((node.key,node.priority,node.value)))
     }
-    
     pub fn depth(&self) -> Result<usize,Error> {
         fn depth_node<K,P,V>(index: &Index<K,P,V>, node: NodePtr) -> Result<usize,IndexError> {
             if node.is_none() { return Ok(0); }
