@@ -266,7 +266,7 @@ impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
 
         depth_node(&self.index, self.root).map_err(Error::Index)
     }
-    pub fn drop_tail(&mut self, p: &P) -> Result<(),Error> {
+    pub fn cut(&mut self, p: &P) -> Result<(),Error> {
         fn check_node<'t,K,P: PartialOrd,V>(index: &'t mut Index<K,P,V>, node: NodePtr, p: &P) -> Result<bool,IndexError> {
             if node.is_none() { return Ok(true); }
             let entry = index.get(&node)?;
