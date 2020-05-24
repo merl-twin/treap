@@ -266,6 +266,35 @@ impl<K: PartialOrd + PartialEq,P: PartialOrd,V> Treap<K,P,V> {
 
         depth_node(&self.index, self.root).map_err(Error::Index)
     }
+    pub fn drop_tail(&mut self, p: &P) -> Result<(),Error> {
+        fn check_node<'t,K,P: PartialOrd,V>(index: &'t mut Index<K,P,V>, node: NodePtr, p: &P) -> Result<bool,IndexError> {
+            if node.is_none() { return Ok(true); }
+            let entry = index.get(&node)?;
+            match entry.priority < *p {
+                true => {
+                    drop_node(index,node,p)?;
+                    Ok(true)
+                },
+                false => {
+                    let (l,r) = (entry.left,entry.right);
+                    if check_node(index,l,p)? { index.get_mut(&node)?.left = None; }
+                    if check_node(index,r,p)? { index.get_mut(&node)?.right = None; }
+                    Ok(false)
+                }
+            }
+        }
+        fn drop_node<'t,K,P,V>(index: &'t mut Index<K,P,V>, node: NodePtr, p: &P) -> Result<(),IndexError> {
+            if node.is_none() { return Ok(()); }
+            let entry = index.remove(&node)?;
+            drop_node(index,entry.left,p)?;
+            drop_node(index,entry.right,p)
+        }
+
+        if check_node(&mut self.index,self.root,p).map_err(Error::Index)? {
+            self.root = None;
+        }
+        Ok(())
+    }
 }
 impl<K,P: Ord,V> Treap<K,P,V> {
     pub fn nth_priority(&self, n: usize) -> Result<Option<&P>,Error> {
